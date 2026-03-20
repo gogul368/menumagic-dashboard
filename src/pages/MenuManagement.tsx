@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Plus, Pencil, Trash2, ImageIcon } from 'lucide-react';
+import { Plus, Pencil, Trash2, ImageIcon, RefreshCw, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
@@ -9,20 +9,30 @@ import { DishForm } from '@/components/DishForm';
 import { getEffectivePrice } from '@/types/menu';
 import type { Dish, TimeSlot } from '@/types/menu';
 import { toast } from 'sonner';
+import { useGenerateDishImage } from '@/hooks/useGenerateDishImage';
 
 export default function MenuManagement() {
   const { dishes, addDish, updateDish, removeDish } = useStore();
   const [formOpen, setFormOpen] = useState(false);
   const [editingDish, setEditingDish] = useState<Dish | undefined>();
+  const { generateImage, generating } = useGenerateDishImage();
+  const [generatingId, setGeneratingId] = useState<string | null>(null);
 
-  const handleAdd = (data: Omit<Dish, 'id' | 'createdAt'>) => {
+  const handleAdd = async (data: Omit<Dish, 'id' | 'createdAt'>) => {
     const newDish: Dish = {
       ...data,
       id: crypto.randomUUID(),
       createdAt: new Date().toISOString(),
     };
     addDish(newDish);
-    toast.success(`${newDish.name} added to menu!`);
+    toast.success(`${newDish.name} added! Generating image...`);
+
+    // Auto-generate image
+    const imageUrl = await generateImage(newDish.name);
+    if (imageUrl) {
+      updateDish(newDish.id, { imageUrl });
+      toast.success(`Image generated for ${newDish.name}!`);
+    }
   };
 
   const handleEdit = (data: Omit<Dish, 'id' | 'createdAt'>) => {
@@ -35,6 +45,17 @@ export default function MenuManagement() {
   const handleDelete = (dish: Dish) => {
     removeDish(dish.id);
     toast.success(`${dish.name} removed from menu.`);
+  };
+
+  const handleRegenerate = async (dish: Dish) => {
+    setGeneratingId(dish.id);
+    toast.info(`Regenerating image for ${dish.name}...`);
+    const imageUrl = await generateImage(dish.name);
+    if (imageUrl) {
+      updateDish(dish.id, { imageUrl });
+      toast.success(`New image generated for ${dish.name}!`);
+    }
+    setGeneratingId(null);
   };
 
   const slotLabel = (s: TimeSlot) =>
@@ -54,85 +75,104 @@ export default function MenuManagement() {
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <AnimatePresence>
-          {dishes.map((dish) => (
-            <motion.div
-              key={dish.id}
-              layout
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="group relative rounded-lg border bg-card overflow-hidden shadow-[var(--shadow-card)] hover:shadow-[var(--shadow-elevated)] transition-shadow"
-            >
-              {/* Image placeholder */}
-              <div className="h-36 bg-muted flex items-center justify-center">
-                {dish.imageUrl ? (
-                  <img src={dish.imageUrl} alt={dish.name} className="h-full w-full object-cover" />
-                ) : (
-                  <ImageIcon className="h-10 w-10 text-muted-foreground/40" />
-                )}
-              </div>
-
-              {dish.offer && (
-                <Badge className="absolute top-2 left-2 bg-primary text-primary-foreground">{dish.offer}</Badge>
-              )}
-
-              <div className="p-4 space-y-3">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <h3 className="font-display font-semibold text-card-foreground">{dish.name}</h3>
-                    <p className="text-xs text-muted-foreground">{dish.category}</p>
-                  </div>
-                  <div className="text-right">
-                    {dish.offerPercent ? (
-                      <>
-                        <span className="text-xs text-muted-foreground line-through">₹{dish.price}</span>
-                        <p className="font-bold text-primary">₹{getEffectivePrice(dish).toFixed(0)}</p>
-                      </>
+          {dishes.map((dish) => {
+            const isRegenerating = generatingId === dish.id;
+            return (
+              <motion.div
+                key={dish.id}
+                layout
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                className="group relative rounded-lg border bg-card overflow-hidden shadow-[var(--shadow-card)] hover:shadow-[var(--shadow-elevated)] transition-shadow"
+              >
+                {/* Image area */}
+                <div className="h-36 bg-muted flex items-center justify-center relative">
+                  {dish.imageUrl ? (
+                    <img src={dish.imageUrl} alt={dish.name} className="h-full w-full object-cover" />
+                  ) : generating ? (
+                    <Loader2 className="h-8 w-8 text-muted-foreground/40 animate-spin" />
+                  ) : (
+                    <ImageIcon className="h-10 w-10 text-muted-foreground/40" />
+                  )}
+                  {/* Regenerate button */}
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="absolute top-2 right-2 h-7 w-7 bg-card/80 opacity-0 group-hover:opacity-100 transition-opacity"
+                    onClick={() => handleRegenerate(dish)}
+                    disabled={isRegenerating}
+                  >
+                    {isRegenerating ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
                     ) : (
-                      <p className="font-bold text-card-foreground">₹{dish.price}</p>
+                      <RefreshCw className="h-3.5 w-3.5" />
+                    )}
+                  </Button>
+                </div>
+
+                {dish.offer && (
+                  <Badge className="absolute top-2 left-2 bg-primary text-primary-foreground">{dish.offer}</Badge>
+                )}
+
+                <div className="p-4 space-y-3">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <h3 className="font-display font-semibold text-card-foreground">{dish.name}</h3>
+                      <p className="text-xs text-muted-foreground">{dish.category}</p>
+                    </div>
+                    <div className="text-right">
+                      {dish.offerPercent ? (
+                        <>
+                          <span className="text-xs text-muted-foreground line-through">₹{dish.price}</span>
+                          <p className="font-bold text-primary">₹{getEffectivePrice(dish).toFixed(0)}</p>
+                        </>
+                      ) : (
+                        <p className="font-bold text-card-foreground">₹{dish.price}</p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap gap-1">
+                    {dish.timeSlots.map((s) => (
+                      <Badge key={s} variant="outline" className="text-xs">{slotLabel(s)}</Badge>
+                    ))}
+                    {dish.timeSlots.length === 0 && (
+                      <Badge variant="outline" className="text-xs">All Day</Badge>
                     )}
                   </div>
-                </div>
 
-                <div className="flex flex-wrap gap-1">
-                  {dish.timeSlots.map((s) => (
-                    <Badge key={s} variant="outline" className="text-xs">{slotLabel(s)}</Badge>
-                  ))}
-                  {dish.timeSlots.length === 0 && (
-                    <Badge variant="outline" className="text-xs">All Day</Badge>
-                  )}
-                </div>
-
-                <div className="flex items-center justify-between pt-1 border-t">
-                  <div className="flex items-center gap-2">
-                    <Switch
-                      checked={dish.available}
-                      onCheckedChange={(v) => updateDish(dish.id, { available: v })}
-                    />
-                    <span className="text-xs text-muted-foreground">{dish.available ? 'Available' : 'Hidden'}</span>
-                  </div>
-                  <div className="flex gap-1">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8"
-                      onClick={() => { setEditingDish(dish); setFormOpen(true); }}
-                    >
-                      <Pencil className="h-3.5 w-3.5" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 text-destructive"
-                      onClick={() => handleDelete(dish)}
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
+                  <div className="flex items-center justify-between pt-1 border-t">
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        checked={dish.available}
+                        onCheckedChange={(v) => updateDish(dish.id, { available: v })}
+                      />
+                      <span className="text-xs text-muted-foreground">{dish.available ? 'Available' : 'Hidden'}</span>
+                    </div>
+                    <div className="flex gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        onClick={() => { setEditingDish(dish); setFormOpen(true); }}
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-destructive"
+                        onClick={() => handleDelete(dish)}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
                   </div>
                 </div>
-              </div>
-            </motion.div>
-          ))}
+              </motion.div>
+            );
+          })}
         </AnimatePresence>
       </div>
 
