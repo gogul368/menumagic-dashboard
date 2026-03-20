@@ -23,8 +23,8 @@ export default function MenuPreview() {
       </div>
 
       {categories.map((cat) => (
-        <div key={cat}>
-          <h2 className="font-display text-xl font-semibold text-foreground mb-3">{cat}</h2>
+        <div key={String(cat)}>
+          <h2 className="font-display text-xl font-semibold text-foreground mb-3">{String(cat)}</h2>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {availableDishes
               .filter((d) => d.category === cat)
